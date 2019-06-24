@@ -350,7 +350,7 @@ namespace MissionPlanner.Utilities
             }
             catch (BadImageFormatException)
             {
-                CustomMessageBox.Show("Please install the x86 version of gstreamer manually");
+                CustomMessageBox.Show("The incorrect exe architecture has been detected at " + gstlaunch + "\nPlease install gstreamer for the correct architecture");
                 return null;
             }
 
@@ -543,9 +543,7 @@ namespace MissionPlanner.Utilities
             dirs.Add(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
 
             dirs.Add(Settings.GetDataDirectory());
-
-            // packaged version only
-            /*
+            
             DriveInfo[] allDrives = DriveInfo.GetDrives();
             foreach (DriveInfo d in allDrives)
             {
@@ -556,7 +554,7 @@ namespace MissionPlanner.Utilities
                     dirs.Add(d.RootDirectory.Name + "Program Files (x86)" + Path.DirectorySeparatorChar + "gstreamer");
                 }
             }
-            */
+            
             foreach (var dir in dirs)
             {
                 if (Directory.Exists(dir))
