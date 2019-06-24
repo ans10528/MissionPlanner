@@ -344,7 +344,15 @@ namespace MissionPlanner.Utilities
             int argc = 1;
             string[] argv = new string[] {"-vvv"};
 
-            NativeMethods.gst_init(ref argc, argv);
+            try
+            {
+                NativeMethods.gst_init(ref argc, argv);
+            }
+            catch (BadImageFormatException)
+            {
+                CustomMessageBox.Show("Please install the x86 version of gstreamer manually");
+                return null;
+            }
 
             uint v1 = 0, v2 = 0, v3 = 0, v4 = 0;
             NativeMethods.gst_version(ref v1, ref v2, ref v3, ref v4);
