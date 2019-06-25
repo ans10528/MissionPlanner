@@ -2295,7 +2295,7 @@ namespace MissionPlanner
                 //                        Console.WriteLine(DateTime.Now.Millisecond);
                 if (comPort.BaseStream.IsOpen)
                 {
-                    if ((string) this.MenuConnect.Image.Tag != "Disconnect")
+                    if (this.MenuConnect.Image == null || (string) this.MenuConnect.Image.Tag != "Disconnect")
                     {
                         this.BeginInvoke((MethodInvoker) delegate
                         {
@@ -3521,9 +3521,11 @@ namespace MissionPlanner
             }
             if (keyData == (Keys.Control | Keys.X))
             {
-                var ftp = new MissionPlanner.ArduPilot.Mavlink.MAVFtp(MainV2.comPort, (byte) comPort.sysidcurrent, (byte) comPort.compidcurrent);
+                //var ftp = new MissionPlanner.ArduPilot.Mavlink.MAVFtp(MainV2.comPort, (byte) comPort.sysidcurrent, (byte) comPort.compidcurrent);
 
-                ftp.test();
+                new MavFTPUI(comPort).ShowUserControl();
+
+                //ftp.test();
 
             }
             if (keyData == (Keys.Control | Keys.L)) // limits

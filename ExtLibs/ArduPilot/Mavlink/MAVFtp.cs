@@ -625,7 +625,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 return true;
             });
 
-                var dir = kCmdListDirectory("/");
+            var dir = kCmdListDirectory("/");
             kCmdCreateDirectory("/testdir");
             foreach (var ftpFileInfo in dir)
             {
@@ -633,11 +633,33 @@ namespace MissionPlanner.ArduPilot.Mavlink
             }
             int size = 0;
             kCmdCreateFile("/testdir/test.txt", ref size);
-            File.WriteAllText("test.txt", "this is a test " + DateTime.Now);
+            using (var st = File.OpenWrite("test.txt"))
+            {
+                var buf = "this is a test " + DateTime.Now;
+                while (st.Length < 1024 * 1024 * 1)
+                {
+                    st.Write(ASCIIEncoding.ASCII.GetBytes(buf), 0, buf.Length);
+                }
+            }
+
             kCmdWriteFile("test.txt");
             kCmdResetSessions();
             int crc = 0;
             kCmdCalcFileCRC32("/testdir/test.txt", ref crc);
+
+            kCmdOpenFileRO("/testdir/test.txt", out size);
+
+            var file1 = kCmdReadFile("/testdir/test.txt", size);
+
+            kCmdResetSessions();
+
+            kCmdOpenFileRO("/testdir/test.txt", out size);
+
+            var file2 = kCmdBurstReadFile("/testdir/test.txt", size);
+
+            kCmdResetSessions();
+
+            File.Delete("test.txt");
 
             kCmdRename("/testdir/test.txt","/testdir/test2.txt");
 
@@ -670,7 +692,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             */
         }
 
-        private MemoryStream kCmdBurstReadFile(string file, int size)
+        public MemoryStream kCmdBurstReadFile(string file, int size)
         {
             RetryTimeout timeout = new RetryTimeout();
             fileTransferProtocol.target_system = _sysid;
@@ -730,6 +752,9 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 payload.offset = ftphead.offset + ftphead.size;
                 payload.seq_number = seq_no;
                 fileTransferProtocol.payload = payload;
+                // ignore the burst read first response
+                if(payload.size > 0)
+                    Progress?.Invoke((int)((float)payload.offset / size * 100.0));
                 if (ftphead.offset + ftphead.size >= size)
                 {
                     log.InfoFormat("Done {0} {1} ", ftphead.burst_complete, ftphead.offset + ftphead.size);
@@ -741,6 +766,8 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 {
                     log.InfoFormat("next burst {0} {1} ", ftphead.burst_complete, ftphead.offset + ftphead.size);
                     log.Debug(payload);
+                    timeout.ResetTimeout();
+                    timeout.RetriesCurrent = 0;
                     _mavint.sendPacket(fileTransferProtocol, _sysid, _compid);
                 }
 
@@ -758,7 +785,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             return answer;
         }
 
-        private void kCmdCalcFileCRC32(string file, ref int crc32)
+        public void kCmdCalcFileCRC32(string file, ref int crc32)
         {
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
@@ -814,7 +841,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             crc32 = localcrc32;
         }
 
-        private void kCmdCreateDirectory(string file)
+        public void kCmdCreateDirectory(string file)
         {
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
@@ -869,7 +896,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             _mavint.UnSubscribeToPacketType(sub);
         }
 
-        private void kCmdCreateFile(string file, ref int size)
+        public void kCmdCreateFile(string file, ref int size)
         {
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
@@ -925,9 +952,10 @@ namespace MissionPlanner.ArduPilot.Mavlink
             size = localsize;
         }
 
-        private List<FtpFileInfo> kCmdListDirectory(string dir)
+        public List<FtpFileInfo> kCmdListDirectory(string dir)
         {
-            List<FtpFileInfo> answer = new List<FtpFileInfo>();
+            log.Info("kCmdListDirectory: " + dir);
+            List <FtpFileInfo> answer = new List<FtpFileInfo>();
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
             fileTransferProtocol.target_network = 0;
@@ -1025,6 +1053,10 @@ namespace MissionPlanner.ArduPilot.Mavlink
                         }
                     }
 
+                    // 0 records
+                    if(answer.Count == 0)
+                        timeout.Complete = true;
+
                     payload.offset = (uint) answer.Count;
                     payload.seq_number = seq_no++;
                     fileTransferProtocol.payload = payload;
@@ -1038,7 +1070,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             return answer;
         }
 
-        private void kCmdOpenFileWO(string file, ref int size)
+        public void kCmdOpenFileWO(string file, ref int size)
         {
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
@@ -1094,7 +1126,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             size = localsize;
         }
 
-        private MemoryStream kCmdReadFile(string file, int size)
+        public MemoryStream kCmdReadFile(string file, int size)
         {
             RetryTimeout timeout = new RetryTimeout();
             KeyValuePair<MAVLink.MAVLINK_MSG_ID, Func<MAVLink.MAVLinkMessage, bool>> sub;
@@ -1138,6 +1170,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 // log.Debug(ftphead.req_opcode + " " + file + " " + ftphead.size + " " + ftphead.offset);
                 answer.Seek(ftphead.offset, SeekOrigin.Begin);
                 answer.Write(ftphead.data, 0, ftphead.size);
+                Progress?.Invoke((int)((float)payload.offset / size * 100.0));
                 if (ftphead.offset + ftphead.size >= size)
                 {
                     timeout.Complete = true;
@@ -1158,7 +1191,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             return answer;
         }
 
-        private void kCmdRemoveDirectory(string file)
+        public void kCmdRemoveDirectory(string file)
         {
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
@@ -1210,7 +1243,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             _mavint.UnSubscribeToPacketType(sub);
         }
 
-        private void kCmdRemoveFile(string file)
+        public void kCmdRemoveFile(string file)
         {
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
@@ -1262,7 +1295,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             _mavint.UnSubscribeToPacketType(sub);
         }
 
-        private void kCmdRename(string src, string dest)
+        public void kCmdRename(string src, string dest)
         {
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
@@ -1314,7 +1347,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             _mavint.UnSubscribeToPacketType(sub);
         }
 
-        private void kCmdResetSessions()
+        public void kCmdResetSessions()
         {
             var payload = new FTPPayloadHeader()
             {
@@ -1361,7 +1394,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             _mavint.UnSubscribeToPacketType(sub);
         }
 
-        private void kCmdTerminateSession()
+        public void kCmdTerminateSession()
         {
             var payload = new FTPPayloadHeader()
             {
@@ -1408,7 +1441,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             _mavint.UnSubscribeToPacketType(sub);
         }
 
-        private void kCmdTruncateFile(string file)
+        public void kCmdTruncateFile(string file)
         {
             fileTransferProtocol.target_system = _sysid;
             fileTransferProtocol.target_component = _compid;
@@ -1460,7 +1493,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
             _mavint.UnSubscribeToPacketType(sub);
         }
 
-        private void kCmdWriteFile(string srcfile)
+        public void kCmdWriteFile(string srcfile)
         {
             RetryTimeout timeout = new RetryTimeout();
             KeyValuePair<MAVLink.MAVLINK_MSG_ID, Func<MAVLink.MAVLinkMessage, bool>> sub;
@@ -1519,6 +1552,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
                     payload.seq_number = seq_no++;
                     fileTransferProtocol.payload = payload;
                     _mavint.sendPacket(fileTransferProtocol, _sysid, _compid);
+                    Progress?.Invoke((int)((float)payload.offset / size * 100.0));
                     timeout.ResetTimeout();
                     return true;
                 });
@@ -1616,12 +1650,15 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 return "File: " + Name + " " + Size;
             }
         }
+
+        public event Action<int> Progress;
     }
 
     public class RetryTimeout
     {
         public bool Complete = false;
         public int Retries = 3;
+        public int RetriesCurrent = 0;
         public int TimeoutMS = 1000;
         public Action WorkToDo;
         private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
@@ -1650,9 +1687,9 @@ namespace MissionPlanner.ArduPilot.Mavlink
             if (WorkToDo == null)
                 throw new ArgumentNullException("WorkToDo");
             Complete = false;
-            for (int a = 0; a < Retries; a++)
+            for (RetriesCurrent = 0; RetriesCurrent < Retries; RetriesCurrent++)
             {
-                log.InfoFormat("Retry {0} - {1}", a, TimeOutDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fff"));
+                log.InfoFormat("Retry {0} - {1}", RetriesCurrent, TimeOutDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fff"));
                 WorkToDo();
                 TimeOutDateTime = DateTime.Now.AddMilliseconds(TimeoutMS);
                 while (DateTime.Now < TimeOutDateTime)
