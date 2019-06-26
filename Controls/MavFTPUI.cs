@@ -5,11 +5,18 @@ using System.Drawing;
 using System.Data;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using ExifLibrary;
+using Force.Crc32;
+using ICSharpCode.SharpZipLib.Checksum;
+using Ionic.Zip;
 using log4net;
 using MissionPlanner.ArduPilot.Mavlink;
+using MissionPlanner.Utilities;
+using OpenTK.Audio.OpenAL;
 
 namespace MissionPlanner.Controls
 {
@@ -38,7 +45,7 @@ namespace MissionPlanner.Controls
 
             treeView1.Nodes.Clear();
 
-            TreeNode rootNode;
+            TreeNode rootNode = null;
 
             DirectoryInfo info = new DirectoryInfo(@"/", _mavftp);
             if (info.Exists)
@@ -49,6 +56,9 @@ namespace MissionPlanner.Controls
                 treeView1.Nodes.Add(rootNode);
             }
             toolStripStatusLabel1.Text = "Ready";
+
+            TreeView1_NodeMouseClick(null,
+                new TreeNodeMouseClickEventArgs(rootNode, MouseButtons.Left, 1, 1, 1));
         }
 
         private void GetDirectories(DirectoryInfo[] subDirs,
@@ -73,6 +83,9 @@ namespace MissionPlanner.Controls
 
         private void TreeView1_NodeMouseClick(object sender, TreeNodeMouseClickEventArgs e)
         {
+            if (e.Node == null)
+                return;
+
             TreeNode newSelected = e.Node;
             listView1.Items.Clear();
             DirectoryInfo nodeDirInfo = (DirectoryInfo) newSelected.Tag;
@@ -132,24 +145,52 @@ namespace MissionPlanner.Controls
 
             public DirectoryInfo[] GetDirectories()
             {
+                // rerequest every time
                 return _mavftp.kCmdListDirectory(FullPath).Where(a => a.isDirectory)
                     .Select(a => new DirectoryInfo(a.FullName, _mavftp)).ToArray();
             }
 
             public IEnumerable<MAVFtp.FtpFileInfo> GetFiles()
             {
+                // rerequest every time
                 return _mavftp.kCmdListDirectory(FullPath).Where(a => !a.isDirectory);
             }
         }
 
-        private void ListView1_DragDrop(object sender, DragEventArgs e)
+        private async void ListView1_DragDrop(object sender, DragEventArgs e)
         {
+            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
 
+            foreach (var file in files)
+            {
+                await UploadFile(file);
+            }
+
+            TreeView1_NodeMouseClick(null,
+                new TreeNodeMouseClickEventArgs(treeView1.SelectedNode, MouseButtons.Left, 1, 1, 1));
         }
 
         private void ListView1_ColumnClick(object sender, ColumnClickEventArgs e)
         {
-            listView1.Sorting = ( SortOrder)(((int) (listView1.Sorting + 1))% 3);
+            if (listView1.Sorting == null || listView1.Sorting == SortOrder.Descending)
+                listView1.Sorting = SortOrder.Ascending;
+            else
+                listView1.Sorting = SortOrder.Descending;
+
+            listView1.ListViewItemSorter = Comparer<ListViewItem>.Create(((o, o1) =>
+            {
+                var v1 = o.SubItems[e.Column].Text;
+                var v2 = o1.SubItems[e.Column].Text;
+                if (v1.All(a => a >= '0' && a <= '9') && v2.All(a => a >= '0' && a <= '9'))
+                {
+                    if(listView1.Sorting == SortOrder.Descending)
+                        return double.Parse("0" + v1).CompareTo(double.Parse("0" + v2)) * -1;
+                    return double.Parse("0" + v1).CompareTo(double.Parse("0" + v2));
+                }
+                if (listView1.Sorting == SortOrder.Descending)
+                    return v1.CompareTo(v2) * -1;
+                return v1.CompareTo(v2);
+            }));
         }
 
         private async void DownloadToolStripMenuItem_Click(object sender, EventArgs e)
@@ -167,19 +208,16 @@ namespace MissionPlanner.Controls
                     var path = treeView1.SelectedNode.FullPath + "/" + listView1SelectedItem.Text;
                     await Task.Run(() =>
                     {
-                        // watch all traffic
-                        var sub = _mav.SubscribeToPacketType(MAVLink.MAVLINK_MSG_ID.FILE_TRANSFER_PROTOCOL, message =>
-                        {
-                            var msg = (MAVLink.mavlink_file_transfer_protocol_t)message.data;
-                            ArduPilot.Mavlink.MAVFtp.FTPPayloadHeader ftphead = msg.payload;
-                            log.Debug(ftphead);
-                            Console.WriteLine(ftphead);
-
-                            return true;
-                        });
-
                         var ms = _mavftp.GetFile(path);
                         File.WriteAllBytes(sfd.FileName, ms.ToArray());
+
+                        uint crc = 0;
+                        _mavftp.kCmdCalcFileCRC32(path, ref crc);
+                        var crc32a = MAVFtp.crc_crc32(0, File.ReadAllBytes(sfd.FileName));
+                        if (crc32a != crc)
+                        {
+                            throw new BadCrcException();
+                        }
                     });
                 }
                 else if (dr == DialogResult.Cancel)
@@ -198,20 +236,33 @@ namespace MissionPlanner.Controls
             {
                 foreach (var ofdFileName in ofd.FileNames)
                 {
-                    toolStripStatusLabel1.Text = "Upload " + Path.GetFileName(ofdFileName);
-                    var fn = treeView1.SelectedNode.FullPath + "/" + Path.GetFileName(ofdFileName);
-                    await Task.Run(() =>
-                    {
-                        var size = 0;
-                        _mavftp.kCmdOpenFileWO(fn, ref size);
-                        _mavftp.kCmdWriteFile(ofdFileName);
-                        _mavftp.kCmdResetSessions();
-                    });
+                    await UploadFile(ofdFileName);
                 }
             }
 
             TreeView1_NodeMouseClick(null,
                 new TreeNodeMouseClickEventArgs(treeView1.SelectedNode, MouseButtons.Left, 1, 1, 1));
+        }
+
+        private async Task UploadFile(string ofdFileName)
+        {
+            toolStripStatusLabel1.Text = "Upload " + Path.GetFileName(ofdFileName);
+            var fn = treeView1.SelectedNode.FullPath + "/" + Path.GetFileName(ofdFileName);
+            await Task.Run(() =>
+            {
+                var size = 0;
+                _mavftp.kCmdOpenFileWO(fn, ref size);
+                _mavftp.kCmdWriteFile(ofdFileName);
+                _mavftp.kCmdResetSessions();
+                uint crc = 0;
+                _mavftp.kCmdCalcFileCRC32(fn, ref crc);
+                var crc32a = MAVFtp.crc_crc32(0, File.ReadAllBytes(ofdFileName));
+                if (crc32a != crc)
+                {
+                    throw new BadCrcException();
+                }
+            });
+            toolStripStatusLabel1.Text = "Ready";
         }
 
         private void DeleteToolStripMenuItem_Click(object sender, EventArgs e)
@@ -224,6 +275,8 @@ namespace MissionPlanner.Controls
 
             TreeView1_NodeMouseClick(null,
                 new TreeNodeMouseClickEventArgs(treeView1.SelectedNode, MouseButtons.Left, 1, 1, 1));
+            toolStripStatusLabel1.Text = "Ready";
+            PopulateTreeView();
         }
 
         private void RenameToolStripMenuItem_Click(object sender, EventArgs e)
@@ -233,11 +286,15 @@ namespace MissionPlanner.Controls
 
         private void ListView1_AfterLabelEdit(object sender, LabelEditEventArgs e)
         {
+            if (e.Label == null)
+                return;
+
             _mavftp.kCmdRename(treeView1.SelectedNode.FullPath + "/" + listView1.SelectedItems[0].Text,
                 treeView1.SelectedNode.FullPath + "/" + e.Label);
 
             TreeView1_NodeMouseClick(null,
                 new TreeNodeMouseClickEventArgs(treeView1.SelectedNode, MouseButtons.Left, 1, 1, 1));
+            toolStripStatusLabel1.Text = "Ready";
         }
 
         private void NewFolderToolStripMenuItem_Click(object sender, EventArgs e)
@@ -249,8 +306,49 @@ namespace MissionPlanner.Controls
 
             TreeView1_NodeMouseClick(null,
                 new TreeNodeMouseClickEventArgs(treeView1.SelectedNode, MouseButtons.Left, 1, 1, 1));
-
+            toolStripStatusLabel1.Text = "Ready";
             PopulateTreeView();
+        }
+
+        private void GetCRC32ToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            var crc = 0u;
+            _mavftp.kCmdCalcFileCRC32(treeView1.SelectedNode.FullPath + "/" + listView1.SelectedItems[0].Text, ref crc);
+
+            CustomMessageBox.Show(listView1.SelectedItems[0].Text + ": 0x" +crc.ToString("X"));
+        }
+
+        private void ListView1_MouseDown(object sender, MouseEventArgs e)
+        {
+      
+        }
+
+        private void ListView1_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+                e.Effect = DragDropEffects.Copy;
+            else
+                e.Effect = DragDropEffects.None;
+        }
+
+        private void ListView1_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            if (listView1.SelectedItems.Count > 0 )
+            {
+                treeView1.SelectedNode?.Expand();
+                // find child node with name
+                foreach (TreeNode node in treeView1.SelectedNode?.Nodes)
+                {
+                    if (node.Text == listView1.SelectedItems[0].Text)
+                    {
+                        treeView1.SelectedNode = node;
+                        
+                        TreeView1_NodeMouseClick(null,
+                            new TreeNodeMouseClickEventArgs(treeView1.SelectedNode, MouseButtons.Left, 1, 1, 1));
+                        break;
+                    }
+                }
+            }
         }
     }
 
