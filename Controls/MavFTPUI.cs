@@ -36,6 +36,9 @@ namespace MissionPlanner.Controls
                 this.BeginInvokeIfRequired(() => { toolStripProgressBar1.Value = percent; statusStrip1.Refresh(); });
             };
             InitializeComponent();
+
+            treeView1.PathSeparator = "/";
+
             PopulateTreeView();
         }
 
