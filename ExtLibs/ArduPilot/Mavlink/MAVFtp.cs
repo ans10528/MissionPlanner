@@ -479,7 +479,10 @@ namespace MissionPlanner.ArduPilot.Mavlink
             kErrFailFileExists,
 
             /// File exists already
-            kErrFailFileProtected /// File is write protected
+            kErrFailFileProtected,
+
+            /// File is write protected
+            kErrBusy
         };
 
         /// Command opcodes
@@ -546,13 +549,16 @@ namespace MissionPlanner.ArduPilot.Mavlink
             return answer;
         }
 
-        public MemoryStream GetFile(string file)
+        public MemoryStream GetFile(string file, bool burst = true)
         {
             kCmdOpenFileRO(file, out var size);
             if (size == -1)
                 return null;
-            //  var answer = kCmdReadFile(file, size);
-            var answer = kCmdBurstReadFile(file, size);
+            MemoryStream answer;
+            if (!burst)
+                answer= kCmdReadFile(file, size);
+            else
+                answer = kCmdBurstReadFile(file, size);
             kCmdResetSessions();
             return answer;
         }
@@ -570,6 +576,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 session = 0
             };
             fileTransferProtocol.payload = payload;
+            log.Info("get " + payload.opcode + " " + file);
             var timeout = new RetryTimeout();
             size = -1;
             var localsize = size;
@@ -592,7 +599,11 @@ namespace MissionPlanner.ArduPilot.Mavlink
                     }
 
                     if (errorcode == FTPErrorCode.kErrNoSessionsAvailable)
+                    {
                         kCmdResetSessions();
+                        timeout.RetriesCurrent = 0;
+                    }
+
                     return true;
                 }
 
@@ -744,6 +755,20 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 if (ftphead.offset > size || ftphead.size > size || ftphead.offset + ftphead.size > size ||
                     answer.Length == 0 && ftphead.offset > 0 && size < 239)
                     return true;
+                // we have lost data - use retry after timeout
+                if (answer.Position != ftphead.offset)
+                {
+                    seq_no = (ushort)(ftphead.seq_number + 1);
+                    payload.seq_number = seq_no;
+                    fileTransferProtocol.payload = payload;
+                    timeout.RetriesCurrent = 0;
+                    return true;
+                }
+
+                // got a valid segment, so reset retrys
+                timeout.RetriesCurrent = 0;
+                timeout.ResetTimeout();
+
                 answer.Seek(ftphead.offset, SeekOrigin.Begin);
                 answer.Write(ftphead.data, 0, ftphead.size);
                 timeout.ResetTimeout();
@@ -767,8 +792,6 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 {
                     log.InfoFormat("next burst {0} {1} ", ftphead.burst_complete, ftphead.offset + ftphead.size);
                     log.Debug(payload);
-                    timeout.ResetTimeout();
-                    timeout.RetriesCurrent = 0;
                     _mavint.sendPacket(fileTransferProtocol, _sysid, _compid);
                 }
 
@@ -799,7 +822,8 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 session = 0
             };
             fileTransferProtocol.payload = payload;
-            var timeout = new RetryTimeout();
+            log.Info("get " + payload.opcode + " " + file);
+            var timeout = new RetryTimeout(4, 5000);
             crc32 = UInt32.MaxValue;
             var localcrc32 = crc32;
             var sub = _mavint.SubscribeToPacketType(MAVLink.MAVLINK_MSG_ID.FILE_TRANSFER_PROTOCOL, message =>
@@ -1034,7 +1058,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
 
                         if (errorcode == FTPErrorCode.kErrEOF)
                             timeout.Complete = true;
-                        log.Error(ftphead.req_opcode + " " + errorcode);
+
                         return true;
                     }
 
@@ -1107,6 +1131,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
                     fileTransferProtocol.payload = payload;
                     _mavint.sendPacket(fileTransferProtocol, _sysid, _compid);
                     timeout.ResetTimeout();
+                    timeout.RetriesCurrent = 0;
                     return true;
                 });
             timeout.WorkToDo = () => _mavint.sendPacket(fileTransferProtocol, _sysid, _compid);
@@ -1128,6 +1153,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 session = 0
             };
             fileTransferProtocol.payload = payload;
+            log.Info("get " + payload.opcode + " " + file);
             var timeout = new RetryTimeout();
             size = -1;
             var localsize = size;
@@ -1150,7 +1176,11 @@ namespace MissionPlanner.ArduPilot.Mavlink
                     }
 
                     if (errorcode == FTPErrorCode.kErrNoSessionsAvailable)
+                    {
                         kCmdResetSessions();
+                        timeout.RetriesCurrent = 0;
+                    }
+
                     return true;
                 }
 
@@ -1213,6 +1243,16 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 if (ftphead.opcode != FTPOpcode.kRspAck)
                     return true;
                 // log.Debug(ftphead.req_opcode + " " + file + " " + ftphead.size + " " + ftphead.offset);
+                // we have lost data - use retry after timeout
+                if (answer.Position != ftphead.offset)
+                {
+                    timeout.RetriesCurrent = 0;
+                    return true;
+                }
+                // got a valid segment, so reset retrys
+                timeout.RetriesCurrent = 0;
+                timeout.ResetTimeout();
+
                 answer.Seek(ftphead.offset, SeekOrigin.Begin);
                 answer.Write(ftphead.data, 0, ftphead.size);
                 Progress?.Invoke((int)((float)payload.offset / size * 100.0));
@@ -1226,7 +1266,6 @@ namespace MissionPlanner.ArduPilot.Mavlink
                 payload.seq_number = seq_no++;
                 fileTransferProtocol.payload = payload;
                 _mavint.sendPacket(fileTransferProtocol, _sysid, _compid);
-                timeout.ResetTimeout();
                 return true;
             });
             timeout.WorkToDo = () => _mavint.sendPacket(fileTransferProtocol, _sysid, _compid);
@@ -1711,7 +1750,7 @@ namespace MissionPlanner.ArduPilot.Mavlink
         private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         private DateTime _timeOutDateTime = DateTime.MinValue;
 
-        public RetryTimeout(int Retrys = 3, int TimeoutMS = 1000)
+        public RetryTimeout(int Retrys = 30, int TimeoutMS = 1000)
         {
             this.Retries = Retrys;
             this.TimeoutMS = TimeoutMS;

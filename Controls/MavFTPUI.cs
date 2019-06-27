@@ -42,7 +42,7 @@ namespace MissionPlanner.Controls
             PopulateTreeView();
         }
 
-        private void PopulateTreeView()
+        private async void PopulateTreeView()
         {
             toolStripStatusLabel1.Text = "Updating Folders";
 
@@ -55,7 +55,7 @@ namespace MissionPlanner.Controls
             {
                 rootNode = new TreeNode(info.Name);
                 rootNode.Tag = info;
-                GetDirectories(info.GetDirectories(), rootNode);
+                await GetDirectories(info.GetDirectories(), rootNode);
                 treeView1.Nodes.Add(rootNode);
             }
             toolStripStatusLabel1.Text = "Ready";
@@ -64,7 +64,7 @@ namespace MissionPlanner.Controls
                 new TreeNodeMouseClickEventArgs(rootNode, MouseButtons.Left, 1, 1, 1));
         }
 
-        private void GetDirectories(DirectoryInfo[] subDirs,
+        private async Task GetDirectories(DirectoryInfo[] subDirs,
             TreeNode nodeToAddTo)
         {
             TreeNode aNode;
@@ -77,7 +77,7 @@ namespace MissionPlanner.Controls
                 subSubDirs = subDir.GetDirectories();
                 if (subSubDirs.Length != 0)
                 {
-                    GetDirectories(subSubDirs, aNode);
+                    await GetDirectories(subSubDirs, aNode);
                 }
 
                 nodeToAddTo.Nodes.Add(aNode);
@@ -211,7 +211,7 @@ namespace MissionPlanner.Controls
                     var path = treeView1.SelectedNode.FullPath + "/" + listView1SelectedItem.Text;
                     await Task.Run(() =>
                     {
-                        var ms = _mavftp.GetFile(path);
+                        var ms = _mavftp.GetFile(path, false);
                         File.WriteAllBytes(sfd.FileName, ms.ToArray());
 
                         uint crc = 0;
@@ -228,6 +228,7 @@ namespace MissionPlanner.Controls
                     return;
                 }
             }
+            toolStripStatusLabel1.Text = "Ready";
         }
 
         private async void UploadToolStripMenuItem_Click(object sender, EventArgs e)
@@ -352,6 +353,41 @@ namespace MissionPlanner.Controls
                     }
                 }
             }
+        }
+
+        private async void DownloadBurstToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            foreach (ListViewItem listView1SelectedItem in listView1.SelectedItems)
+            {
+                toolStripStatusLabel1.Text = "Download " + listView1SelectedItem.Text;
+                SaveFileDialog sfd = new SaveFileDialog();
+                sfd.FileName = listView1SelectedItem.Text;
+                sfd.RestoreDirectory = true;
+                sfd.OverwritePrompt = true;
+                var dr = sfd.ShowDialog();
+                if (dr == DialogResult.OK)
+                {
+                    var path = treeView1.SelectedNode.FullPath + "/" + listView1SelectedItem.Text;
+                    await Task.Run(() =>
+                    {
+                        var ms = _mavftp.GetFile(path);
+                        File.WriteAllBytes(sfd.FileName, ms.ToArray());
+
+                        uint crc = 0;
+                        _mavftp.kCmdCalcFileCRC32(path, ref crc);
+                        var crc32a = MAVFtp.crc_crc32(0, File.ReadAllBytes(sfd.FileName));
+                        if (crc32a != crc)
+                        {
+                            throw new BadCrcException();
+                        }
+                    });
+                }
+                else if (dr == DialogResult.Cancel)
+                {
+                    return;
+                }
+            }
+            toolStripStatusLabel1.Text = "Ready";
         }
     }
 

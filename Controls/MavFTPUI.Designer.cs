@@ -43,10 +43,11 @@
             this.deleteToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.renameToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.newFolderToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.getCRC32ToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.statusStrip1 = new System.Windows.Forms.StatusStrip();
             this.toolStripStatusLabel1 = new System.Windows.Forms.ToolStripStatusLabel();
             this.toolStripProgressBar1 = new System.Windows.Forms.ToolStripProgressBar();
-            this.getCRC32ToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.downloadBurstToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
             this.splitContainer1.Panel2.SuspendLayout();
@@ -134,6 +135,7 @@
             // contextMenuStrip1
             // 
             this.contextMenuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.downloadBurstToolStripMenuItem,
             this.downloadToolStripMenuItem,
             this.uploadToolStripMenuItem,
             this.deleteToolStripMenuItem,
@@ -142,7 +144,7 @@
             this.getCRC32ToolStripMenuItem});
             this.contextMenuStrip1.Name = "contextMenuStrip1";
             this.contextMenuStrip1.ShowImageMargin = false;
-            this.contextMenuStrip1.Size = new System.Drawing.Size(110, 136);
+            this.contextMenuStrip1.Size = new System.Drawing.Size(156, 180);
             // 
             // downloadToolStripMenuItem
             // 
@@ -179,6 +181,13 @@
             this.newFolderToolStripMenuItem.Text = "New Folder";
             this.newFolderToolStripMenuItem.Click += new System.EventHandler(this.NewFolderToolStripMenuItem_Click);
             // 
+            // getCRC32ToolStripMenuItem
+            // 
+            this.getCRC32ToolStripMenuItem.Name = "getCRC32ToolStripMenuItem";
+            this.getCRC32ToolStripMenuItem.Size = new System.Drawing.Size(155, 22);
+            this.getCRC32ToolStripMenuItem.Text = "GetCRC32";
+            this.getCRC32ToolStripMenuItem.Click += new System.EventHandler(this.GetCRC32ToolStripMenuItem_Click);
+            // 
             // statusStrip1
             // 
             this.statusStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
@@ -201,12 +210,12 @@
             this.toolStripProgressBar1.Name = "toolStripProgressBar1";
             this.toolStripProgressBar1.Size = new System.Drawing.Size(100, 16);
             // 
-            // getCRC32ToolStripMenuItem
+            // downloadBurstToolStripMenuItem
             // 
-            this.getCRC32ToolStripMenuItem.Name = "getCRC32ToolStripMenuItem";
-            this.getCRC32ToolStripMenuItem.Size = new System.Drawing.Size(155, 22);
-            this.getCRC32ToolStripMenuItem.Text = "GetCRC32";
-            this.getCRC32ToolStripMenuItem.Click += new System.EventHandler(this.GetCRC32ToolStripMenuItem_Click);
+            this.downloadBurstToolStripMenuItem.Name = "downloadBurstToolStripMenuItem";
+            this.downloadBurstToolStripMenuItem.Size = new System.Drawing.Size(155, 22);
+            this.downloadBurstToolStripMenuItem.Text = "Download Burst";
+            this.downloadBurstToolStripMenuItem.Click += new System.EventHandler(this.DownloadBurstToolStripMenuItem_Click);
             // 
             // MavFTPUI
             // 
@@ -247,5 +256,6 @@
         private System.Windows.Forms.ToolStripStatusLabel toolStripStatusLabel1;
         private System.Windows.Forms.ToolStripProgressBar toolStripProgressBar1;
         private System.Windows.Forms.ToolStripMenuItem getCRC32ToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem downloadBurstToolStripMenuItem;
     }
 }

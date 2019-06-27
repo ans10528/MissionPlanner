@@ -2997,6 +2997,9 @@ namespace MissionPlanner
             {
                 try
                 {
+                    if (firmware == "")
+                        return null;
+
                     var modes = Common.getModesList((Firmwares) Enum.Parse(typeof(Firmwares), firmware));
                     string currentmode = null;
 
